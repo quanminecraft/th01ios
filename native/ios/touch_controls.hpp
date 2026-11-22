@@ -72,10 +72,10 @@ public:
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
         // D-Pad arms with directional arrows
-        Rect r_up{dpad_cx_ - 18, dpad_cy_ - 54, 36, 36};
-        Rect r_down{dpad_cx_ - 18, dpad_cy_ + 18, 36, 36};
-        Rect r_left{dpad_cx_ - 54, dpad_cy_ - 18, 36, 36};
-        Rect r_right{dpad_cx_ + 18, dpad_cy_ - 18, 36, 36};
+        Rect r_up{dpad_cx_ - 23, dpad_cy_ - 69, 46, 46};
+        Rect r_down{dpad_cx_ - 23, dpad_cy_ + 23, 46, 46};
+        Rect r_left{dpad_cx_ - 69, dpad_cy_ - 23, 46, 46};
+        Rect r_right{dpad_cx_ + 23, dpad_cy_ - 23, 46, 46};
 
         draw_button(renderer, r_up, s.up, 255, 255, 255);
         draw_arrow(renderer, r_up, 0, -1, s.up);
@@ -178,14 +178,14 @@ private:
 
     std::unordered_map<SDL_FingerID, std::pair<float, float>> fingers_;
 
-    const float dpad_cx_ = 74.0f;
-    const float dpad_cy_ = 326.0f;
-    const Rect dpad_area_{10.0f, 260.0f, 132.0f, 132.0f};
+    const float dpad_cx_ = 88.0f;
+    const float dpad_cy_ = 312.0f;
+    const Rect dpad_area_{4.0f, 224.0f, 176.0f, 176.0f};
 
-    const Rect btn_shot_{506.0f, 326.0f, 54.0f, 54.0f};
-    const Rect btn_strike_{572.0f, 294.0f, 54.0f, 54.0f};
-    const Rect btn_bomb_{506.0f, 260.0f, 54.0f, 50.0f};
-    const Rect btn_pause_{576.0f, 14.0f, 50.0f, 28.0f};
+    const Rect btn_shot_{478.0f, 316.0f, 68.0f, 68.0f};
+    const Rect btn_strike_{558.0f, 276.0f, 68.0f, 68.0f};
+    const Rect btn_bomb_{480.0f, 244.0f, 64.0f, 58.0f};
+    const Rect btn_pause_{564.0f, 12.0f, 62.0f, 38.0f};
 };
 
 } // namespace th01_native

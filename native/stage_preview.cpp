@@ -105,10 +105,13 @@ int main(int argc,char** argv) {
 			}
 #if TH01_IOS_BUILD
 			{
+				static bool prev_touch_pause=false;
 				auto ts=touch_controls.state();
 				keys.left|=ts.left;keys.right|=ts.right;keys.up|=ts.up;keys.down|=ts.down;
 				keys.shot|=ts.shot;keys.strike|=ts.strike;
-				if(ts.pause) controller_start=true;
+				bool pause_edge=ts.pause && !prev_touch_pause;
+				prev_touch_pause=ts.pause;
+				if(pause_edge && !menu_controls) keys.escape=true;
 			}
 #endif
    apply_start_button(keys,start_button_down(mapped_start,controller_start,mapped_start_only),menu_controls);
@@ -236,5 +239,11 @@ int main(int argc,char** argv) {
 		if(!dump.empty())dump_bmp(dump,title?title->framebuffer():session->framebuffer());
 		std::cout<<"Stage host ticks="<<ticks<<" presentations="<<presented<<" audio_frames="<<music.rendered_frames()<<" state="<<(session?int(session->state()):-1)<<'\n';
 
-	} catch(const WindowClosed&) {return 0;} catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
+	} catch(const WindowClosed&) {return 0;} catch(const std::exception& e) {
+		std::cerr<<e.what()<<'\n';
+#if TH01_IOS_BUILD
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"TH01 Native Error",e.what(),nullptr);
+#endif
+		return 1;
+	}
 }
