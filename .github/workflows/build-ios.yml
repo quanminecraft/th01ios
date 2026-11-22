@@ -60,6 +60,7 @@ jobs:
           set -euo pipefail
           mkdir -p ipa/Payload
           cp -R build-ios/Release-iphoneos/TH01Native.app ipa/Payload/
+          cp native/ios/AppIcon*.png ipa/Payload/TH01Native.app/
           cd ipa
           zip -r ../TH01Native-iOS-unsigned.ipa Payload
 
