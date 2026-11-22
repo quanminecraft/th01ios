@@ -71,17 +71,33 @@ public:
         const auto s = state();
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
-        // D-Pad arms
-        draw_button(renderer, {dpad_cx_ - 18, dpad_cy_ - 54, 36, 36}, s.up, 255, 255, 255);
-        draw_button(renderer, {dpad_cx_ - 18, dpad_cy_ + 18, 36, 36}, s.down, 255, 255, 255);
-        draw_button(renderer, {dpad_cx_ - 54, dpad_cy_ - 18, 36, 36}, s.left, 255, 255, 255);
-        draw_button(renderer, {dpad_cx_ + 18, dpad_cy_ - 18, 36, 36}, s.right, 255, 255, 255);
+        // D-Pad arms with directional arrows
+        Rect r_up{dpad_cx_ - 18, dpad_cy_ - 54, 36, 36};
+        Rect r_down{dpad_cx_ - 18, dpad_cy_ + 18, 36, 36};
+        Rect r_left{dpad_cx_ - 54, dpad_cy_ - 18, 36, 36};
+        Rect r_right{dpad_cx_ + 18, dpad_cy_ - 18, 36, 36};
 
-        // Action buttons: Z (red/pink), X (blue/cyan), Bomb (amber), Pause (gray)
+        draw_button(renderer, r_up, s.up, 255, 255, 255);
+        draw_arrow(renderer, r_up, 0, -1, s.up);
+        draw_button(renderer, r_down, s.down, 255, 255, 255);
+        draw_arrow(renderer, r_down, 0, 1, s.down);
+        draw_button(renderer, r_left, s.left, 255, 255, 255);
+        draw_arrow(renderer, r_left, -1, 0, s.left);
+        draw_button(renderer, r_right, s.right, 255, 255, 255);
+        draw_arrow(renderer, r_right, 1, 0, s.right);
+
+        // Action buttons: Z (Shot - red), X (Strike - blue), B (Bomb - amber), || (Pause - gray)
         draw_button(renderer, btn_shot_, s.shot && !s.bomb, 255, 90, 110);
+        draw_glyph_Z(renderer, btn_shot_, s.shot && !s.bomb);
+
         draw_button(renderer, btn_strike_, s.strike && !s.bomb, 90, 180, 255);
+        draw_glyph_X(renderer, btn_strike_, s.strike && !s.bomb);
+
         draw_button(renderer, btn_bomb_, s.bomb, 255, 200, 60);
+        draw_glyph_B(renderer, btn_bomb_, s.bomb);
+
         draw_button(renderer, btn_pause_, s.pause, 200, 200, 200);
+        draw_glyph_pause(renderer, btn_pause_, s.pause);
 
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
     }
@@ -94,10 +110,70 @@ private:
             static_cast<int>(r.w),
             static_cast<int>(r.h)
         };
-        SDL_SetRenderDrawColor(renderer, cr, cg, cb, active ? 135 : 55);
+        SDL_SetRenderDrawColor(renderer, cr, cg, cb, active ? 140 : 60);
         SDL_RenderFillRect(renderer, &sr);
-        SDL_SetRenderDrawColor(renderer, cr, cg, cb, active ? 220 : 120);
+        SDL_SetRenderDrawColor(renderer, cr, cg, cb, active ? 235 : 140);
         SDL_RenderDrawRect(renderer, &sr);
+    }
+
+    static void draw_arrow(SDL_Renderer* renderer, Rect r, int dx, int dy, bool active) {
+        int cx = static_cast<int>(r.x + r.w * 0.5f);
+        int cy = static_cast<int>(r.y + r.h * 0.5f);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, active ? 245 : 170);
+        if (dy < 0) {
+            SDL_RenderDrawLine(renderer, cx, cy - 6, cx - 6, cy + 4);
+            SDL_RenderDrawLine(renderer, cx, cy - 6, cx + 6, cy + 4);
+        } else if (dy > 0) {
+            SDL_RenderDrawLine(renderer, cx, cy + 6, cx - 6, cy - 4);
+            SDL_RenderDrawLine(renderer, cx, cy + 6, cx + 6, cy - 4);
+        } else if (dx < 0) {
+            SDL_RenderDrawLine(renderer, cx - 6, cy, cx + 4, cy - 6);
+            SDL_RenderDrawLine(renderer, cx - 6, cy, cx + 4, cy + 6);
+        } else if (dx > 0) {
+            SDL_RenderDrawLine(renderer, cx + 6, cy, cx - 4, cy - 6);
+            SDL_RenderDrawLine(renderer, cx + 6, cy, cx - 4, cy + 6);
+        }
+    }
+
+    static void draw_glyph_Z(SDL_Renderer* renderer, Rect r, bool active) {
+        int cx = static_cast<int>(r.x + r.w * 0.5f);
+        int cy = static_cast<int>(r.y + r.h * 0.5f);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, active ? 255 : 185);
+        SDL_RenderDrawLine(renderer, cx - 7, cy - 8, cx + 7, cy - 8);
+        SDL_RenderDrawLine(renderer, cx + 7, cy - 8, cx - 7, cy + 8);
+        SDL_RenderDrawLine(renderer, cx - 7, cy + 8, cx + 7, cy + 8);
+    }
+
+    static void draw_glyph_X(SDL_Renderer* renderer, Rect r, bool active) {
+        int cx = static_cast<int>(r.x + r.w * 0.5f);
+        int cy = static_cast<int>(r.y + r.h * 0.5f);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, active ? 255 : 185);
+        SDL_RenderDrawLine(renderer, cx - 7, cy - 8, cx + 7, cy + 8);
+        SDL_RenderDrawLine(renderer, cx + 7, cy - 8, cx - 7, cy + 8);
+    }
+
+    static void draw_glyph_B(SDL_Renderer* renderer, Rect r, bool active) {
+        int cx = static_cast<int>(r.x + r.w * 0.5f);
+        int cy = static_cast<int>(r.y + r.h * 0.5f);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, active ? 255 : 185);
+        SDL_RenderDrawLine(renderer, cx - 6, cy - 8, cx - 6, cy + 8);
+        SDL_RenderDrawLine(renderer, cx - 6, cy - 8, cx + 4, cy - 8);
+        SDL_RenderDrawLine(renderer, cx + 4, cy - 8, cx + 6, cy - 4);
+        SDL_RenderDrawLine(renderer, cx + 6, cy - 4, cx + 4, cy);
+        SDL_RenderDrawLine(renderer, cx - 6, cy, cx + 5, cy);
+        SDL_RenderDrawLine(renderer, cx + 5, cy, cx + 7, cy + 4);
+        SDL_RenderDrawLine(renderer, cx + 7, cy + 4, cx + 4, cy + 8);
+        SDL_RenderDrawLine(renderer, cx - 6, cy + 8, cx + 4, cy + 8);
+    }
+
+    static void draw_glyph_pause(SDL_Renderer* renderer, Rect r, bool active) {
+        int cx = static_cast<int>(r.x + r.w * 0.5f);
+        int cy = static_cast<int>(r.y + r.h * 0.5f);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, active ? 255 : 185);
+        SDL_Rect bar1{cx - 6, cy - 6, 4, 12};
+        SDL_Rect bar2{cx + 2, cy - 6, 4, 12};
+        SDL_RenderFillRect(renderer, &bar1);
+        SDL_RenderFillRect(renderer, &bar2);
     }
 
     std::unordered_map<SDL_FingerID, std::pair<float, float>> fingers_;

@@ -456,7 +456,14 @@ option(TH01_BUILD_PREVIEW "Build the SDL2 native asset viewer" ON)
 if(TH01_BUILD_PREVIEW)
 	if(IOS)
 		find_package(SDL2 REQUIRED CONFIG)
-		add_executable(stage_preview MACOSX_BUNDLE stage_preview.cpp sdl_music.cpp sdl_midi.cpp ios/ios_paths.mm)
+		set(TH01_IOS_ICONS
+			ios/AppIcon60x60@2x.png
+			ios/AppIcon60x60@3x.png
+			ios/AppIcon76x76@2x.png
+			ios/AppIcon83.5x83.5@2x.png
+		)
+		set_source_files_properties(${TH01_IOS_ICONS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+		add_executable(stage_preview MACOSX_BUNDLE stage_preview.cpp sdl_music.cpp sdl_midi.cpp ios/ios_paths.mm ${TH01_IOS_ICONS})
 		set_target_properties(stage_preview PROPERTIES
 			OUTPUT_NAME "TH01Native"
 			MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/ios/Info.plist"
