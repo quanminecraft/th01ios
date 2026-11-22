@@ -79,6 +79,8 @@ int main(int argc,char** argv) {
 		connect();
 #if TH01_IOS_BUILD
 		TouchControls touch_controls;
+		bool ios_in_background=false;
+		bool ios_auto_pause_pending=false;
 #endif
 		SdlMusic music(launch_assets);
   bool menu_controls=!direct_stage;
@@ -90,9 +92,30 @@ int main(int argc,char** argv) {
 				if(event.type==SDL_QUIT) throw WindowClosed{};
 				if(event.type==SDL_CONTROLLERDEVICEADDED || event.type==SDL_CONTROLLERDEVICEREMOVED) connect();
 #if TH01_IOS_BUILD
-				touch_controls.handle_event(event);
+				if(event.type==SDL_APP_WILLENTERBACKGROUND || event.type==SDL_APP_DIDENTERBACKGROUND) {
+					ios_in_background=true;
+					ios_auto_pause_pending=true;
+					touch_controls.clear();
+				} else if(event.type==SDL_APP_WILLENTERFOREGROUND || event.type==SDL_APP_DIDENTERFOREGROUND) {
+					ios_in_background=false;
+					touch_controls.clear();
+				} else {
+					touch_controls.handle_event(event);
+				}
 #endif
 			}
+#if TH01_IOS_BUILD
+			while(ios_in_background) {
+				SDL_Event bg_event;
+				if(SDL_WaitEvent(&bg_event)) {
+					if(bg_event.type==SDL_QUIT) throw WindowClosed{};
+					if(bg_event.type==SDL_APP_WILLENTERFOREGROUND || bg_event.type==SDL_APP_DIDENTERFOREGROUND) {
+						ios_in_background=false;
+						touch_controls.clear();
+					}
+				}
+			}
+#endif
 			auto* k=SDL_GetKeyboardState(nullptr);if(k[SDL_SCANCODE_Q]) throw WindowClosed{};
 			InputKeys keys;keys.left=k[SDL_SCANCODE_LEFT];keys.right=k[SDL_SCANCODE_RIGHT];keys.up=k[SDL_SCANCODE_UP];keys.down=k[SDL_SCANCODE_DOWN];keys.shot=k[SDL_SCANCODE_Z];keys.strike=k[SDL_SCANCODE_X];keys.escape=k[SDL_SCANCODE_ESCAPE];keys.enter=k[SDL_SCANCODE_RETURN];keys.num_up=k[SDL_SCANCODE_KP_8];keys.num_down=k[SDL_SCANCODE_KP_2];keys.num_left=k[SDL_SCANCODE_KP_4];keys.num_right=k[SDL_SCANCODE_KP_6];
 			bool mapped_start=k[SDL_SCANCODE_F1],controller_start=false;
@@ -111,6 +134,10 @@ int main(int argc,char** argv) {
 				keys.shot|=ts.shot;keys.strike|=ts.strike;
 				bool pause_edge=ts.pause && !prev_touch_pause;
 				prev_touch_pause=ts.pause;
+				if(ios_auto_pause_pending) {
+					ios_auto_pause_pending=false;
+					if(!menu_controls) pause_edge=true;
+				}
 				if(pause_edge && !menu_controls) keys.escape=true;
 			}
 #endif

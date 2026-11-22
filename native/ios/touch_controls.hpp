@@ -27,6 +27,11 @@ public:
         }
     };
 
+    void clear() {
+        fingers_.clear();
+        joy_finger_.reset();
+    }
+
     void handle_event(const SDL_Event& event) {
         if (event.type == SDL_FINGERDOWN) {
             float x = event.tfinger.x * 640.0f;
