@@ -1,0 +1,67 @@
+#ifdef TH01_NATIVE_ORB_PHYSICS
+#include "native/fullwidth_text.hpp"
+#else
+#include <stdio.h>
+#include <stdarg.h>
+#include "th01/hardware/grp_text.hpp"
+#include "th01/hardware/grppsafx.h"
+#include "th01/shiftjis/fwnum.hpp"
+
+void graph_printf_fx(
+	screen_x_t left,
+	vram_y_t top,
+	int16_t col_and_fx,
+	const shiftjis_t *fmt,
+	...
+)
+{
+	char str[256];
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsprintf(str, fmt, ap);
+	graph_putsa_fx(left, top, col_and_fx, str);
+}
+#endif
+
+void graph_putfwnum_fx(
+	screen_x_t left, vram_y_t top, int16_t col_and_fx, int digits,
+#ifdef TH01_NATIVE_ORB_PHYSICS
+	std::int32_t num, std::int32_t num_prev, bool16 put
+#else
+	long num, long num_prev, bool16 put
+#endif
+)
+{
+	screen_x_t x = left;
+	int divisor_i;
+	int digit;
+	int digit_prev;
+#ifdef TH01_NATIVE_ORB_PHYSICS
+	std::uint32_t divisor = 1;
+#else
+	unsigned long divisor = 1;
+#endif
+	const shiftjis_t* FULLWIDTH_NUMERAL[10] = FULLWIDTH_NUMERALS;
+
+	for(divisor_i = 0; divisor_i < digits; divisor_i++) {
+		divisor *= 10;
+	}
+	do {
+		divisor /= 10;
+		if(x > (RES_X - GLYPH_FULL_W)) {
+			return;
+		}
+
+		digit = ((num / divisor) % 10);
+		digit_prev = ((num_prev / divisor) % 10);
+
+		if(digit != 0) {
+			put = true;
+		}
+		if(put && ((digit != digit_prev) || !num_prev)) {
+			graph_putsa_fx(x, top, col_and_fx, FULLWIDTH_NUMERAL[digit]);
+		}
+		x += GLYPH_FULL_W;
+	} while(divisor > 1);
+}

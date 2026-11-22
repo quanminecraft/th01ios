@@ -1,0 +1,432 @@
+#include <stdlib.h>
+#include "decomp.hpp"
+#include "th01/math/wave.hpp"
+#include "th01/hardware/graph.h"
+#include "th01/hardware/planar.h"
+#include "th01/formats/pf.hpp"
+#include "th01/formats/bos.hpp"
+#include "th01/main/boss/entity_a.hpp"
+#include "platform/x86real/pc98/page.hpp"
+
+// Slot structures
+// ---------------
+// Both CBossEntity and CBossAnim choose to restrict themselves to
+// word-aligned / 16w×h image sizes, even though .BOS itself is byte-aligned.
+
+#define BOS_IMAGES_PER_SLOT 8
+
+struct bos_word_image_t {
+	Planar<dots16_t *> planes;
+	dots16_t *alpha;
+};
+
+struct bos_word_t {
+	bos_word_image_t image[BOS_IMAGES_PER_SLOT];
+};
+
+// Always assigning a nullptr to [ptr], for a change...
+#define bos_image_ptr_free(ptr) \
+	if(ptr) { \
+		delete[] ptr; \
+	} \
+	ptr = nullptr;
+// ---------------
+
+/// Entities
+/// --------
+
+bos_word_t bos_entity_images[BOS_ENTITY_SLOT_COUNT];
+
+int CBossEntity::load(const char fn[PF_FN_LEN], int slot)
+{
+	// Very evil pointer casting ahead...
+	static_assert(sizeof(bos_word_image_t) == sizeof(bos_image_t));
+	static_assert(
+		offsetof(bos_word_image_t, planes) == offsetof(bos_image_t, planes)
+	);
+	static_assert(
+		offsetof(bos_word_image_t, alpha) == offsetof(bos_image_t, alpha)
+	);
+
+	bos_entity_free(slot);
+	bos_slot = slot;
+	BOS::load(
+		reinterpret_cast<bos_image_t *>(bos_entity_images[slot].image), fn
+	);
+	return 0;
+}
+
+/// Blitting
+/// --------
+
+void CBossEntity::put_8(screen_x_t left, vram_y_t top, int image) const
+{
+	vram_offset_t vram_offset_row = vram_offset_divmul(left, top);
+	vram_offset_t vram_offset;
+	size_t bos_p = 0;
+	pixel_t bos_y;
+	vram_word_amount_t bos_word_x;
+	vram_y_t intended_y;
+
+	const bos_word_image_t& bos = bos_entity_images[bos_slot].image[image];
+	if(bos_image_count <= image) {
+		return;
+	}
+
+	for(bos_y = 0; h > bos_y; bos_y++) {
+		vram_offset_t vram_offset = vram_offset_row;
+		intended_y = vram_intended_y_for(vram_offset_row, left);
+		for(bos_word_x = 0; (vram_w / 2) > bos_word_x; bos_word_x++) {
+			if((vram_offset / ROW_SIZE) == intended_y) {
+				if(~bos.alpha[bos_p]) {
+					vram_erase(vram_offset, ~bos.alpha[bos_p], 16);
+					vram_or_emptyopt(B, vram_offset, bos.planes.B[bos_p], 16);
+					vram_or_emptyopt(R, vram_offset, bos.planes.R[bos_p], 16);
+					vram_or_emptyopt(G, vram_offset, bos.planes.G[bos_p], 16);
+					vram_or_emptyopt(E, vram_offset, bos.planes.E[bos_p], 16);
+				}
+			}
+			vram_offset += 2;
+			bos_p++;
+		}
+		vram_offset_row += ROW_SIZE;
+		if(vram_offset_row >= PLANE_SIZE) { // Clip at the bottom edge
+			break;
+		}
+	}
+}
+void CBossEntity::put_1line(
+	screen_x_t left, vram_y_t y, int image, pixel_t row
+) const
+{
+	vram_offset_t vram_offset_row = vram_offset_shift(left, y);
+	vram_word_amount_t bos_word_x;
+	size_t bos_p = 0;
+	vram_y_t intended_y;
+	char first_bit = (left & BYTE_MASK);
+	char other_shift = ((1 * BYTE_DOTS) - first_bit);
+
+	const bos_word_image_t& bos = bos_entity_images[bos_slot].image[image];
+	if(bos_image_count <= image) {
+		return;
+	}
+
+	vram_offset_t vram_offset = vram_offset_row;
+	intended_y = vram_intended_y_for(vram_offset_row, left);
+
+	bos_p = ((vram_w / 2) * row);
+	for(bos_word_x = 0; (vram_w / 2) > bos_word_x; bos_word_x++) {
+		if((vram_offset / ROW_SIZE) == intended_y) {
+			struct {
+				StupidBytewiseWrapperAround<dots16_t> alpha, B, R, G, E;
+			} cur;
+
+			cur.alpha.t = ~bos.alpha[bos_p];
+			cur.B.t = bos.planes.B[bos_p];
+			cur.R.t = bos.planes.R[bos_p];
+			cur.G.t = bos.planes.G[bos_p];
+			cur.E.t = bos.planes.E[bos_p];
+
+			#define vram_byte(plane, byte) \
+				(VRAM_PLANE_##plane + vram_offset)[byte]
+			register vram_byte_amount_t b;
+			if(first_bit == 0) {
+				for(b = 0; b < sizeof(dots16_t); b++) {
+					grcg_setcolor_rmw(0);
+					vram_byte(B, b) = cur.alpha.ubyte[b];
+					grcg_off_func();
+
+					vram_byte(B, b) |= cur.B.ubyte[b];
+					vram_byte(R, b) |= cur.R.ubyte[b];
+					vram_byte(G, b) |= cur.G.ubyte[b];
+					vram_byte(E, b) |= cur.E.ubyte[b];
+				}
+			} else {
+				for(b = 0; b < sizeof(dots16_t); b++) {
+					grcg_setcolor_rmw(0);
+					vram_byte(B, b + 0) = (cur.alpha.ubyte[b] >> first_bit);
+					vram_byte(B, b + 1) = (cur.alpha.ubyte[b] << other_shift);
+					grcg_off_func();
+
+					vram_byte(B, b + 0) |= (cur.B.ubyte[b] >> first_bit);
+					vram_byte(R, b + 0) |= (cur.R.ubyte[b] >> first_bit);
+					vram_byte(G, b + 0) |= (cur.G.ubyte[b] >> first_bit);
+					vram_byte(E, b + 0) |= (cur.E.ubyte[b] >> first_bit);
+					vram_byte(B, b + 1) |= (cur.B.ubyte[b] << other_shift);
+					vram_byte(R, b + 1) |= (cur.R.ubyte[b] << other_shift);
+					vram_byte(G, b + 1) |= (cur.G.ubyte[b] << other_shift);
+					vram_byte(E, b + 1) |= (cur.E.ubyte[b] << other_shift);
+				}
+			}
+			#undef vram_byte
+		}
+		vram_offset += 2;
+		bos_p++;
+	}
+}
+void near vram_snap_masked(
+	dots16_t far &dst, dots8_t far *plane, vram_offset_t vo, dots16_t mask
+)
+{
+	dst = (reinterpret_cast<dots16_t far &>(plane[vo]) & mask);
+}
+
+void near vram_put_bg_fg(
+	sdots16_t fg, dots8_t far *plane, vram_offset_t vo, sdots16_t bg_masked
+)
+{
+	reinterpret_cast<dots16_t far &>(plane[vo]) = (fg | bg_masked);
+}
+
+void near vram_put_unaligned_bg_fg(
+	sdots16_t fg,
+	dots8_t far *plane,
+	vram_offset_t vo,
+	dots16_t bg_masked,
+	char first_bit
+)
+{
+	sdots16_t fg_shifted = (fg >> first_bit) + (fg << (16 - first_bit));
+	reinterpret_cast<dots16_t far &>(plane[vo]) = (fg_shifted | bg_masked);
+}
+
+#define vram_snap_masked_planar(dst, vram_offset, mask) \
+	vram_snap_masked(dst.B, VRAM_PLANE_B, vram_offset, mask); \
+	vram_snap_masked(dst.R, VRAM_PLANE_R, vram_offset, mask); \
+	vram_snap_masked(dst.G, VRAM_PLANE_G, vram_offset, mask); \
+	vram_snap_masked(dst.E, VRAM_PLANE_E, vram_offset, mask);
+
+#define vram_put_bg_fg_planar(vram_offset, bg, fg) \
+	vram_put_bg_fg(fg.B, VRAM_PLANE_B, vram_offset, bg.B); \
+	vram_put_bg_fg(fg.R, VRAM_PLANE_R, vram_offset, bg.R); \
+	vram_put_bg_fg(fg.G, VRAM_PLANE_G, vram_offset, bg.G); \
+	vram_put_bg_fg(fg.E, VRAM_PLANE_E, vram_offset, bg.E);
+
+#define vram_put_bg_word_planar(vram_offset, bg, planes, p) \
+	vram_put_bg_fg(planes.B[p], VRAM_PLANE_B, vram_offset, bg.B); \
+	vram_put_bg_fg(planes.R[p], VRAM_PLANE_R, vram_offset, bg.R); \
+	vram_put_bg_fg(planes.G[p], VRAM_PLANE_G, vram_offset, bg.G); \
+	vram_put_bg_fg(planes.E[p], VRAM_PLANE_E, vram_offset, bg.E);
+
+#define vram_put_unaligned_bg_fg_planar(vram_offset, bg, fg, first_bit) \
+	vram_put_unaligned_bg_fg(fg.B, VRAM_PLANE_B, vram_offset, bg.B, first_bit); \
+	vram_put_unaligned_bg_fg(fg.R, VRAM_PLANE_R, vram_offset, bg.R, first_bit); \
+	vram_put_unaligned_bg_fg(fg.G, VRAM_PLANE_G, vram_offset, bg.G, first_bit); \
+	vram_put_unaligned_bg_fg(fg.E, VRAM_PLANE_E, vram_offset, bg.E, first_bit);
+
+void CBossEntity::unput_and_put_1line(
+	screen_x_t left, vram_y_t y, int image, pixel_t row
+) const
+{
+	vram_offset_t vram_offset_row = vram_offset_shift(left, y);
+	vram_word_amount_t bos_word_x;
+	size_t bos_p = 0;
+	vram_y_t intended_y;
+	char first_bit = (left & BYTE_MASK);
+	char other_shift = ((2 * BYTE_DOTS) - first_bit);
+	Planar<dots16_t> bg_masked;
+	dots16_t mask_unaligned;
+
+	const bos_word_image_t& bos = bos_entity_images[bos_slot].image[image];
+	if(bos_image_count <= image) {
+		return;
+	}
+
+	vram_offset_t vram_offset = vram_offset_row;
+	intended_y = vram_intended_y_for(vram_offset_row, left);
+
+	bos_p = ((vram_w / 2) * row);
+	for(bos_word_x = 0; (vram_w / 2) > bos_word_x; bos_word_x++) {
+		if((vram_offset / ROW_SIZE) == intended_y) {
+			Planar<dots16_t> fg;
+
+			dots16_t alpha = bos.alpha[bos_p];
+			fg.B = bos.planes.B[bos_p];
+			fg.R = bos.planes.R[bos_p];
+			fg.G = bos.planes.G[bos_p];
+			fg.E = bos.planes.E[bos_p];
+			if(first_bit == 0) {
+				page_access(1);
+				vram_snap_masked_planar(bg_masked, vram_offset, alpha);
+				page_access(0);
+				vram_put_bg_fg_planar(vram_offset, bg_masked, fg);
+			} else {
+				page_access(1);
+				mask_unaligned = (
+					(alpha >> first_bit) + (alpha << other_shift)
+				);
+				vram_snap_masked_planar(bg_masked, vram_offset, mask_unaligned);
+				page_access(0);
+				vram_put_unaligned_bg_fg_planar(
+					vram_offset, bg_masked, fg, first_bit
+				);
+			}
+		}
+		vram_offset += 2;
+		bos_p++;
+	}
+}
+
+void CBossEntity::unput_and_put_8(
+	screen_x_t left, vram_y_t top, int image
+) const
+{
+	vram_offset_t vram_offset_row = vram_offset_divmul(left, top);
+	vram_offset_t vram_offset;
+	size_t bos_p = 0;
+	pixel_t bos_y;
+	vram_word_amount_t bos_word_x;
+	vram_y_t intended_y;
+	Planar<dots16_t> bg_masked;
+
+	const bos_word_image_t& bos = bos_entity_images[bos_slot].image[image];
+	if(bos_image_count <= image) {
+		return;
+	}
+
+	for(bos_y = 0; h > bos_y; bos_y++) {
+		vram_offset_t vram_offset = vram_offset_row;
+		intended_y = vram_intended_y_for(vram_offset_row, left);
+		for(bos_word_x = 0; (vram_w / 2) > bos_word_x; bos_word_x++) {
+			if(
+				vram_offset_at_intended_y_16(vram_offset, intended_y) &&
+				(vram_offset >= 0) // Clip at the top edge
+			) {
+				page_access(1);
+				if(bos.alpha[bos_p]) {
+					vram_snap_planar_masked(
+						bg_masked, vram_offset, 16, bos.alpha[bos_p]
+					);
+				} else {
+					bg_masked.B = bg_masked.R = bg_masked.G = bg_masked.E = 0;
+				}
+				page_access(0);
+				VRAM_PUT(B, vram_offset, bos.planes.B[bos_p] | bg_masked.B, 16);
+				VRAM_PUT(R, vram_offset, bos.planes.R[bos_p] | bg_masked.R, 16);
+				VRAM_PUT(G, vram_offset, bos.planes.G[bos_p] | bg_masked.G, 16);
+				VRAM_PUT(E, vram_offset, bos.planes.E[bos_p] | bg_masked.E, 16);
+			}
+			vram_offset += 2;
+			bos_p++;
+		}
+		vram_offset_row += ROW_SIZE;
+		if(vram_offset_row >= PLANE_SIZE) { // Clip at the bottom edge
+			break;
+		}
+	}
+}
+
+#include "th01/main/boss/entity_wave.inc"
+/// --------
+
+#include "th01/main/boss/entity_motion.inc"
+
+void bos_entity_free(int slot)
+{
+	for(int image = 0; image < BOS_IMAGES_PER_SLOT; image++) {
+		bos_image_ptr_free(bos_entity_images[slot].image[image].alpha);
+		bos_image_ptr_free(bos_entity_images[slot].image[image].planes.B);
+		bos_image_ptr_free(bos_entity_images[slot].image[image].planes.R);
+		bos_image_ptr_free(bos_entity_images[slot].image[image].planes.G);
+		bos_image_ptr_free(bos_entity_images[slot].image[image].planes.E);
+	}
+}
+/// --------
+
+/// Non-entity animations
+/// ---------------------
+
+bos_word_t bos_anim_images[BOS_ANIM_SLOT_COUNT];
+
+int CBossAnim::load(const char fn[PF_FN_LEN], int slot)
+{
+	// Very evil pointer casting ahead...
+	static_assert(sizeof(bos_word_image_t) == sizeof(bos_image_t));
+	static_assert(
+		offsetof(bos_word_image_t, planes) == offsetof(bos_image_t, planes)
+	);
+	static_assert(
+		offsetof(bos_word_image_t, alpha) == offsetof(bos_image_t, alpha)
+	);
+
+	bos_word_image_t *bos = bos_anim_images[slot].image;
+	bos_anim_free(slot);
+	bos_slot = slot;
+	const int plane_size_half = (
+		BOS::load(reinterpret_cast<bos_image_t *>(bos), fn) / 2
+	);
+	for(int i = 0; bos_image_count > i; i++) {
+		for(int bos_p = 0; bos_p < plane_size_half; bos_p++) {
+			bos->alpha[bos_p] = ~bos->alpha[bos_p];
+		}
+		bos++;
+	}
+	return 0;
+}
+
+void CBossAnim::put_8(void) const
+{
+	vram_offset_t vram_offset_row = vram_offset_divmul(left, top);
+	vram_offset_t vram_offset;
+	size_t bos_p = 0;
+	pixel_t bos_y;
+	vram_word_amount_t bos_word_x;
+	vram_y_t intended_y;
+
+	const bos_word_image_t& bos = bos_anim_images[bos_slot].image[bos_image];
+	if(bos_image >= bos_image_count) {
+		return;
+	}
+
+	for(bos_y = 0; h > bos_y; bos_y++) {
+		vram_offset_t vram_offset = vram_offset_row;
+		intended_y = vram_intended_y_for(vram_offset_row, left);
+		for(bos_word_x = 0; (vram_w / 2) > bos_word_x; bos_word_x++) {
+			if((vram_offset / ROW_SIZE) == intended_y) {
+				if(bos.alpha[bos_p]) {
+					vram_erase(vram_offset, bos.alpha[bos_p], 16);
+				}
+				vram_or_emptyopt(B, vram_offset, bos.planes.B[bos_p], 16);
+				vram_or_emptyopt(R, vram_offset, bos.planes.R[bos_p], 16);
+				vram_or_emptyopt(G, vram_offset, bos.planes.G[bos_p], 16);
+				vram_or_emptyopt(E, vram_offset, bos.planes.E[bos_p], 16);
+			}
+			vram_offset += 2;
+			bos_p++;
+		}
+		vram_offset_row += ROW_SIZE;
+		if(vram_offset_row >= PLANE_SIZE) { // Clip at the bottom edge
+			break;
+		}
+	}
+}
+
+void bos_anim_free(int slot)
+{
+	for(int image = 0; image < BOS_IMAGES_PER_SLOT; image++) { \
+		bos_image_ptr_free(bos_anim_images[slot].image[image].alpha);
+
+		// How do you even?!
+		#undef bos_image_ptr_free
+		#define bos_image_ptr_free(ptr) \
+			delete[] ptr; \
+			ptr = nullptr;
+
+		bos_image_ptr_free(bos_anim_images[slot].image[image].planes.B);
+		bos_image_ptr_free(bos_anim_images[slot].image[image].planes.R);
+		bos_image_ptr_free(bos_anim_images[slot].image[image].planes.G);
+		bos_image_ptr_free(bos_anim_images[slot].image[image].planes.E);
+	}
+}
+/// ---------------------
+
+// Slots
+// -----
+
+CBossEntity boss_entity_0;
+CBossEntity boss_entity_1;
+CBossEntity boss_entity_2;
+CBossEntity boss_entity_3;
+CBossEntity boss_entity_4;
+CBossAnim boss_anims[2];
+// -----

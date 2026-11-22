@@ -1,0 +1,59 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download and build SDL2 for iOS (arm64)
+        run: |
+          set -euo pipefail
+          SDL_VER=2.30.10
+          curl -L "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VER}/SDL2-${SDL_VER}.tar.gz" -o SDL2.tar.gz
+          tar -xzf SDL2.tar.gz
+          cmake -S "SDL2-${SDL_VER}" -B sdl2-ios-build -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_INSTALL_PREFIX="${PWD}/sdl2-ios-install" \
+            -DSDL_SHARED=OFF \
+            -DSDL_STATIC=ON \
+            -DSDL_TEST=OFF
+          cmake --build sdl2-ios-build --config Release -- \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+          cmake --install sdl2-ios-build --config Release
+
+      - name: Configure and build TH01Native.app for iOS (arm64)
+        run: |
+          set -euo pipefail
+          cmake -S native -B build-ios -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DCMAKE_PREFIX_PATH="${PWD}/sdl2-ios-install" \
+            -DTH01_BUILD_PREVIEW=ON
+          cmake --build build-ios --target stage_preview --config Release -- \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          mkdir -p ipa/Payload
+          cp -R build-ios/Release-iphoneos/TH01Native.app ipa/Payload/
+          cd ipa
+          zip -r ../TH01Native-iOS-unsigned.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TH01Native-iOS-unsigned
+          path: TH01Native-iOS-unsigned.ipa
